@@ -3,7 +3,15 @@ Persistent Homology with Ripser
 ===============================
 
 Computes topological features from gene expression data using
-Vietoris-Rips persistent homology 
+Vietoris-Rips persistent homology.
+
+IMPORTANT: This module computes topology in PATIENT-SPACE by default.
+- Rows = samples (patients/cell lines)
+- Columns = features (genes)
+- Result = topological relationships between patients
+
+For GENE-SPACE topology (relationships between genes), transpose your
+data matrix: ph.fit_transform(X.T)
 
 Author: Angelica Alvarez
 """
@@ -28,18 +36,28 @@ class PersistentHomologyComputer:
     This class computes topological features (H0, H1, H2) from 
     high-dimensional data using Vietoris-Rips filtration.
     
+    By default, computes topology in PATIENT-SPACE:
+    - H0: Patient clusters (groups with similar expression)
+    - H1: Cyclic patterns in patient relationships
+    - H2: Higher-order voids in patient space
+    
+    For gene-space topology, pass X.T (transposed matrix).
+    
     Parameters
     ----------
     max_dimension : int, default=2
         Maximum homology dimension to compute:
-        - H0: Connected components (patient clusters)
-        - H1: Loops (cyclic patterns in gene relationships)
-        - H2: Voids (higher-order structures)
+        - H0: Connected components
+        - H1: Loops/cycles
+        - H2: Voids/cavities
     metric : str, default="correlation"
-        Distance metric. "correlation" is recommended for gene expression
-        as it captures expression pattern similarity regardless of magnitude.
+        Distance metric for comparing samples.
+        - "correlation": 1 - Pearson correlation (recommended for gene expression)
+        - "euclidean": Standard Euclidean distance
+        - "cosine": Cosine distance
     threshold : float, default=np.inf
         Maximum filtration value. Use to limit computation on large datasets.
+        Lower values = faster but may miss features.
         
     Attributes
     ----------
@@ -49,7 +67,7 @@ class PersistentHomologyComputer:
     distance_matrix_ : np.ndarray
         Computed pairwise distance matrix.
     cocycles_ : list
-        Representative cocycles (if computed).
+        Representative cocycles (for advanced analysis).
         
     Examples
     --------
@@ -59,12 +77,26 @@ class PersistentHomologyComputer:
     >>> # Gene expression: 100 patients × 500 genes
     >>> X = np.random.randn(100, 500)
     >>> 
-    >>> # Compute persistent homology
+    >>> # Patient-space topology (default)
     >>> ph = PersistentHomologyComputer(max_dimension=2)
     >>> diagrams = ph.fit_transform(X)
-    >>> 
-    >>> # View summary
     >>> print(ph.summary())
+    >>> 
+    >>> # Gene-space topology (transpose data)
+    >>> ph_genes = PersistentHomologyComputer(max_dimension=1)
+    >>> diagrams_genes = ph_genes.fit_transform(X.T)
+    
+    Notes
+    -----
+    Why correlation distance for gene expression?
+    
+    Correlation distance measures similarity in expression PATTERNS,
+    not absolute levels. Two patients with the same relative gene
+    expression pattern will have distance ≈ 0, even if one has
+    globally higher expression (e.g., due to technical variation).
+    
+    This is biologically meaningful: we care about which genes are
+    up/down-regulated relative to each other, not absolute counts.
     """
     
     def __init__(
@@ -83,6 +115,8 @@ class PersistentHomologyComputer:
         self.cocycles_ = None
         self._ripser_result = None
         self._is_fitted = False
+        self._n_samples = None
+        self._n_features = None
     
     def fit(self, X: np.ndarray, y=None) -> 'PersistentHomologyComputer':
         """
@@ -91,8 +125,9 @@ class PersistentHomologyComputer:
         Parameters
         ----------
         X : np.ndarray of shape (n_samples, n_features)
-            Input data matrix. For drug response prediction,
-            rows are patients and columns are genes.
+            Input data matrix.
+            - For patient-space TDA: rows=patients, cols=genes
+            - For gene-space TDA: pass X.T (rows=genes, cols=patients)
         y : ignored
             Present for sklearn API compatibility.
             
@@ -100,16 +135,26 @@ class PersistentHomologyComputer:
         -------
         self
             Fitted estimator.
+            
+        Notes
+        -----
+        The algorithm:
+        1. Compute pairwise distance matrix between all rows
+        2. Build Vietoris-Rips filtration (gradually connect nearby points)
+        3. Track when topological features (components, loops, voids) 
+           appear (birth) and disappear (death)
+        4. Return persistence diagrams summarizing this evolution
         """
         X = np.asarray(X, dtype=np.float64)
         
         if X.ndim != 2:
             raise ValueError(f"Expected 2D array, got {X.ndim}D")
         
-        n_samples, n_features = X.shape
-        print(f"   Computing persistence for {n_samples} samples, {n_features} features...")
+        self._n_samples, self._n_features = X.shape
+        print(f"   Computing persistence for {self._n_samples} samples, {self._n_features} features...")
+        print(f"   → Mode: {'Patient-space' if self._n_samples < self._n_features else 'Gene-space (transposed?)'} TDA")
         
-        # Step 1: Compute distance matrix
+        # Step 1: Compute distance matrix between rows (samples)
         print(f"   → Distance metric: {self.metric}")
         self.distance_matrix_ = self._compute_distance_matrix(X)
         
@@ -119,8 +164,8 @@ class PersistentHomologyComputer:
             self.distance_matrix_,
             maxdim=self.max_dimension,
             thresh=self.threshold,
-            distance_matrix=True,
-            do_cocycles=True
+            distance_matrix=True,  # We pass precomputed distances
+            do_cocycles=True       # Store representative cycles
         )
         
         # Step 3: Extract persistence diagrams
@@ -132,21 +177,32 @@ class PersistentHomologyComputer:
     
     def _compute_distance_matrix(self, X: np.ndarray) -> np.ndarray:
         """
-        Compute pairwise distance matrix.
+        Compute pairwise distance matrix between ROWS of X.
         
-        For gene expression data, correlation distance is preferred
-        because it measures similarity of expression patterns
-        regardless of absolute expression levels.
+        For gene expression with X = (n_patients, n_genes):
+        - Result is (n_patients, n_patients) distance matrix
+        - Entry [i,j] = distance between patient i and patient j
+        
+        For gene-space TDA with X.T = (n_genes, n_patients):
+        - Result is (n_genes, n_genes) distance matrix
+        - Entry [i,j] = distance between gene i and gene j
         """
         if self.metric == "correlation":
-            # Correlation distance: d(x,y) = 1 - corr(x,y)
-            # Range: [0, 2] where 0 = identical, 2 = opposite
+            # Correlation distance: d(x,y) = 1 - pearson_correlation(x,y)
+            # Range: [0, 2] where:
+            #   0 = identical patterns
+            #   1 = uncorrelated
+            #   2 = opposite patterns (anti-correlated)
             distances = pdist(X, metric='correlation')
         else:
             distances = pdist(X, metric=self.metric)
         
         # Handle NaN values (can occur with constant rows)
-        distances = np.nan_to_num(distances, nan=1.0)
+        # Replace NaN with 1.0 (uncorrelated)
+        n_nan = np.sum(np.isnan(distances))
+        if n_nan > 0:
+            print(f"   ⚠ Warning: {n_nan} NaN distances (constant rows?), replacing with 1.0")
+            distances = np.nan_to_num(distances, nan=1.0)
         
         return squareform(distances)
     
@@ -154,8 +210,16 @@ class PersistentHomologyComputer:
         """
         Extract persistence diagrams from Ripser output.
         
-        Removes points with infinite death time (features that never die)
-        for cleaner downstream processing.
+        Design choice: We REMOVE points with infinite death time.
+        
+        Why? 
+        - Infinite death = "essential" features that never disappear
+        - For H0, there's always exactly 1 essential feature (the final 
+          connected component containing all points)
+        - For ML, we want finite, comparable features
+        - Essential features can be counted separately if needed
+        
+        Alternative: Keep infinite features by setting death = max_filtration
         """
         diagrams = []
         
@@ -167,10 +231,10 @@ class PersistentHomologyComputer:
                 finite_mask = np.isfinite(dgm[:, 1])
                 finite_dgm = dgm[finite_mask]
                 
-                # Count infinite points (essential features)
+                # Report statistics
                 n_infinite = np.sum(~finite_mask)
                 if n_infinite > 0:
-                    print(f"   → H{dim}: {len(finite_dgm)} finite + {n_infinite} essential features")
+                    print(f"   → H{dim}: {len(finite_dgm)} finite + {n_infinite} essential (infinite) features")
                 else:
                     print(f"   → H{dim}: {len(finite_dgm)} features")
                 
@@ -243,7 +307,8 @@ class PersistentHomologyComputer:
         Get persistence values (death - birth) for a dimension.
         
         Persistence measures how "significant" each topological
-        feature is. Longer persistence = more robust feature.
+        feature is. Longer persistence = more robust feature that
+        exists across many scales.
         
         Parameters
         ----------
@@ -272,9 +337,10 @@ class PersistentHomologyComputer:
         dict
             Summary for each homology dimension including:
             - n_features: Number of topological features
-            - max_persistence: Strongest feature
+            - max_persistence: Strongest (most robust) feature
             - mean_persistence: Average feature strength
-            - total_persistence: Sum of all persistence values
+            - total_persistence: Sum of all persistence (total topological complexity)
+            - description: Biological interpretation
         """
         if not self._is_fitted:
             raise RuntimeError("Must call fit() first")
@@ -303,11 +369,16 @@ class PersistentHomologyComputer:
         return summary
     
     def _get_dim_description(self, dim: int) -> str:
-        """Get biological interpretation for each dimension."""
+        """
+        Get interpretation for each dimension.
+        
+        Note: Interpretations assume PATIENT-SPACE TDA (default).
+        For gene-space TDA, interpretations would differ.
+        """
         descriptions = {
-            0: "Connected components (patient subgroups)",
-            1: "Loops (cyclic gene relationships)",
-            2: "Voids (higher-order structures)"
+            0: "Connected components (patient subgroups with similar expression)",
+            1: "Loops (cyclic patterns in patient similarity space)",
+            2: "Voids (higher-order cavities in patient space)"
         }
         return descriptions.get(dim, f"H{dim} features")
     
@@ -336,7 +407,7 @@ class PersistentHomologyComputer:
         if len(dgm) == 0:
             return np.array([]).reshape(0, 2)
         
-        # Sort by persistence (death - birth)
+        # Sort by persistence (death - birth), descending
         persistence = dgm[:, 1] - dgm[:, 0]
         top_indices = np.argsort(persistence)[::-1][:top_n]
         
@@ -360,10 +431,12 @@ def compute_persistence_quick(
     """
     Quick function to compute persistence diagrams.
     
+    Convenience wrapper for one-off computations.
+    
     Parameters
     ----------
     X : np.ndarray
-        Input data matrix.
+        Input data matrix (samples × features).
     max_dimension : int
         Maximum homology dimension.
     metric : str
@@ -376,8 +449,12 @@ def compute_persistence_quick(
         
     Examples
     --------
+    >>> # Patient-space TDA
     >>> diagrams = compute_persistence_quick(X, max_dimension=1)
     >>> h0, h1 = diagrams[0], diagrams[1]
+    >>> 
+    >>> # Gene-space TDA
+    >>> diagrams_genes = compute_persistence_quick(X.T, max_dimension=1)
     """
     ph = PersistentHomologyComputer(
         max_dimension=max_dimension,
