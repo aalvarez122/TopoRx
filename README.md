@@ -275,8 +275,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 **Angelica Alvarez**
 -  B.S. Neuroscience, University of Arizona
--  Data Engineer @ IGC Pharma
--  Research: TDA, Computational Oncology, Drug Discovery
 
 [![GitHub](https://img.shields.io/badge/GitHub-aalvarez122-black)](https://github.com/aalvarez122)
 
