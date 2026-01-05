@@ -1,16 +1,35 @@
 """
-TopoRx: Topological Biomarker Discovery
-========================================
+Data Module - Sample Cancer Drug Response Data
+==============================================
 
-Predicting cancer drug response using Topological Data Analysis.
+Provides SYNTHETIC cancer drug response data for demonstrating
+topological biomarker discovery.
+
+This is SIMULATED data based on GDSC structure.
+It is designed for educational and demonstration purposes only.
+For real research, use actual GDSC, CCLE, or TCGA datasets.
+
+Data source inspiration: Sanger Institute GDSC
 
 Author: Angelica Alvarez
-GitHub: https://github.com/aalvarez122/TopoRx
 """
 
-__version__ = "0.1.0"
-__author__ = "Angelica Alvarez"
+from toporx.data.loader import (
+    load_sample_data,
+    load_gdsc_subset,
+    get_data_info,
+    get_gene_info,
+    CANCER_GENES,
+    CELL_LINES,
+    DRUGS
+)
 
-from toporx.pipeline import TopoRxPipeline
-
-__all__ = ["TopoRxPipeline"]
+__all__ = [
+    "load_sample_data",
+    "load_gdsc_subset",
+    "get_data_info",
+    "get_gene_info",
+    "CANCER_GENES",
+    "CELL_LINES",
+    "DRUGS"
+]
