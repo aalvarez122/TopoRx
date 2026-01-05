@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/logo.png" alt="TopoRx Logo" width="200">
-</p>
-
 <h1 align="center">TopoRx</h1>
 
 <p align="center">
@@ -16,14 +12,14 @@
   <a href="#"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT"></a>
   <a href="#"><img src="https://img.shields.io/badge/TDA-Persistent_Homology-purple.svg" alt="TDA"></a>
-  <a href="#"><img src="https://img.shields.io/badge/status-active-brightgreen.svg" alt="Status"></a>
+  <a href="#"><img src="https://img.shields.io/badge/TME-Tumor_Microenvironment-orange.svg" alt="TME"></a>
 </p>
 
 ---
 
 ##  What is TopoRx?
 
-**TopoRx** applies cutting-edge **Topological Data Analysis (TDA)** to predict how cancer patients respond to drugs. Instead of looking at individual genes, we analyze the *shape* of gene expression data to discover biomarkers invisible to traditional methods.
+**TopoRx** applies **Topological Data Analysis (TDA)** to predict how cancer patients respond to drugs. Instead of looking at individual genes, we analyze the *shape* of gene expression data to discover biomarkers invisible to traditional methods.
 
 ### The Problem
 
@@ -33,41 +29,50 @@ Traditional biomarker discovery:
 - Linear methods → can't capture non-linear biology
 
 ### Our Solution
-
 ```
 Gene Expression → Topological Features → Drug Response Prediction
                         ↓
-            • Persistent Homology
+            • Persistent Homology (Ripser)
             • Persistence Landscapes  
             • Betti Curves
+```
+
+**Result**: Topological biomarkers that capture the *shape* of disease, with potential to improve drug response prediction over traditional gene-only methods.
+
 ---
 
 ##  The Science
 
 ### Why Topology?
 
-Cancer is complex. The relationship between genes, proteins, and drug response isn't linear—it's a high-dimensional shape. TDA captures this shape through:
+Cancer is complex. The relationship between genes, proteins, and drug response isn't linear—it's a **high-dimensional shape**. TDA captures this shape through:
 
 | Concept | What it captures | Biological meaning |
 |---------|------------------|-------------------|
 | **H0 (Connected Components)** | Clusters in data | Distinct patient subgroups |
-| **H1 (Loops)** | Circular patterns | Feedback loops, cycles |
+| **H1 (Loops)** | Circular patterns | Feedback loops, gene cycles |
 | **H2 (Voids)** | Cavities in data | Missing interactions |
 
 ### Persistence = Importance
 
-Features that **persist** across multiple scales are real signals, not noise. This makes TDA inherently robust.
+Features that **persist** across multiple scales are real signals, not noise. This makes TDA inherently robust to biological variability.
 
-<p align="center">
-  <img src="assets/persistence_diagram.png" alt="Persistence Diagram" width="600">
-</p>
+### Tumor Microenvironment (TME) Integration
+
+TopoRx includes key TME genes relevant for immunotherapy response prediction:
+
+| Gene | Role | Relevance |
+|------|------|-----------|
+| **FAP** | Cancer-associated fibroblast marker | TME remodeling |
+| **CD8A** | Cytotoxic T-cell marker | Immune infiltration |
+| **TGFB1** | Immunosuppressive signaling | Treatment resistance |
+| **CD274** | PD-L1 | Checkpoint inhibitor target |
 
 ---
 
 ##  Quick Start
 
 ### Installation
-
 ```bash
 git clone https://github.com/aalvarez122/TopoRx.git
 cd TopoRx
@@ -75,35 +80,64 @@ pip install -r requirements.txt
 ```
 
 ### Basic Usage
-
 ```python
-from toporx import TopoRxPipeline
+from toporx.data import load_sample_data
+from toporx.tda import PersistentHomologyComputer, TopologicalFeatureExtractor
+from toporx.prediction import DrugResponseClassifier
+import numpy as np
 
-# Initialize pipeline
-pipeline = TopoRxPipeline()
-
-# Load your gene expression data
-pipeline.load_data(
-    expression_matrix="data/expression.csv",
-    drug_response="data/response.csv"
+# Load sample cancer data (includes TME genes)
+X, y, info = load_sample_data(
+    n_samples=100,
+    n_genes=80,
+    drug='Pembrolizumab',  # PD-1 inhibitor
+    include_tme=True
 )
 
-# Extract topological features
-topo_features = pipeline.extract_topological_features()
+print(f"Loaded: {X.shape[0]} samples, {X.shape[1]} genes")
+print(f"TME genes included: {info['n_tme_genes']}")
 
-# Train drug response predictor
-results = pipeline.train_predictor()
+# Compute persistent homology with Ripser
+ph = PersistentHomologyComputer(max_dimension=2, metric='correlation')
+diagrams = ph.fit_transform(X)
 
-# Visualize results
-pipeline.plot_persistence_diagram()
-pipeline.plot_feature_importance()
+# View topological summary
+print(ph.summary())
+
+# Extract ML-ready features
+extractor = TopologicalFeatureExtractor(
+    feature_types=["statistics", "entropy", "betti"]
+)
+topo_features = extractor.fit_transform(diagrams)
+
+print(f"Extracted {len(topo_features)} topological features")
 ```
 
-### One-Line Demo
+### Run Demo
+```bash
+python examples/quick_start.py
+```
 
-```python
-from toporx import demo
-demo.run()  # Runs full analysis on sample data
+**Expected output:**
+```
+ TopoRx: Topological Biomarker Discovery
+   Predicting Cancer Drug Response Using TDA
+===========================================================
+
+ STEP 1: Loading Cancer Drug Response Data
+   ✓ Loaded 100 samples × 80 genes
+   ✓ Drug: Pembrolizumab
+   ✓ TME genes included: 12
+
+ STEP 2: Computing Persistent Homology
+   → H0: 45 features, max persistence = 0.8234
+   → H1: 23 features, max persistence = 0.4521
+   → H2: 8 features, max persistence = 0.2103
+
+ RESULTS
+   Gene Expression Only:    ROC-AUC = 0.XXX
+   Topological Features:    ROC-AUC = 0.XXX
+   Combined (TDA + Genes):  ROC-AUC = 0.XXX
 ```
 
 ---
@@ -111,103 +145,127 @@ demo.run()  # Runs full analysis on sample data
 ##  Features
 
 ### Topological Feature Extraction
-- **Persistent Homology** — Compute H0, H1, H2 features
-- **Persistence Landscapes** — Functional summaries of persistence
+- **Persistent Homology** — Compute H0, H1, H2 features using Ripser
+- **Persistence Landscapes** — Functional summaries for statistical analysis
 - **Betti Curves** — Track topological features across filtration
-- **Persistence Entropy** — Information-theoretic summary
-- **Persistence Images** — CNN-ready representations
+- **Persistence Entropy** — Information-theoretic topological summary
 
 ### Machine Learning Integration
-- Seamless sklearn integration
+- Seamless scikit-learn integration
 - Built-in cross-validation
 - Comparison with traditional gene-based methods
 - Feature importance analysis
 
-### Interactive Visualizations (Plotly)
-- 3D persistence diagrams
-- Interactive Betti curves
-- Drug response prediction dashboard
-- Feature importance plots
+### Interactive Visualizations
+- Persistence diagrams (Plotly)
+- Betti curve plots
+- Feature importance charts
+- Model comparison visualizations
+
+### TME-Aware Data
+- 200+ cancer-related genes
+- Tumor microenvironment markers (FAP, CD8A, TGFB1)
+- Immunotherapy biomarkers
+- Multiple drug response datasets
+
+---
 
 ##  Project Structure
-
 ```
 TopoRx/
 ├── README.md
 ├── requirements.txt
 ├── LICENSE
-├── setup.py
+├── .gitignore
 │
 ├── toporx/                     # Main package
 │   ├── __init__.py
-│   ├── pipeline.py             # Main TopoRxPipeline class
+│   ├── pipeline.py             # Main pipeline class
 │   │
 │   ├── data/                   # Data handling
 │   │   ├── __init__.py
-│   │   ├── loader.py           # Data loading utilities
-│   │   └── sample_data/        # Sample datasets
+│   │   └── loader.py           # Sample data with TME genes
 │   │
 │   ├── tda/                    # Topological Data Analysis
 │   │   ├── __init__.py
-│   │   ├── persistence.py      # Persistent homology
-│   │   ├── landscapes.py       # Persistence landscapes
-│   │   ├── features.py         # Feature extraction
-│   │   └── filtrations.py      # Filtration methods
+│   │   ├── persistence.py      # Ripser-based persistent homology
+│   │   ├── features.py         # Topological feature extraction
+│   │   └── landscapes.py       # Persistence landscapes
 │   │
 │   ├── prediction/             # ML models
 │   │   ├── __init__.py
 │   │   ├── classifier.py       # Drug response classifier
-│   │   └── evaluation.py       # Model evaluation
+│   │   └── evaluation.py       # Model evaluation metrics
 │   │
 │   └── visualization/          # Plotting
 │       ├── __init__.py
-│       ├── persistence_plots.py
-│       ├── landscapes_plot.py
-│       └── dashboard.py
+│       └── plots.py            # Plotly visualizations
 │
-├── notebooks/
-│   └── demo.ipynb              # Interactive tutorial
-│
-├── examples/
-│   ├── quick_start.py
-│   └── full_analysis.py
-│
-└── tests/
-    └── test_pipeline.py
+└── examples/
+    └── quick_start.py          # Demo script
 ```
 
 ---
 
+##  Biological Context
+
 ### Why This Matters for Cancer Treatment
 
-1. **Precision Medicine**: Match patients to drugs based on their topological signature
+1. **Precision Medicine**: Match patients to drugs based on topological signatures
 2. **Biomarker Discovery**: Find robust markers that survive noise
-3. **Drug Resistance**: Understand why some patients don't respond
-4. **Clinical Trials**: Better patient stratification
+3. **Immunotherapy Prediction**: TME genes influence checkpoint inhibitor response
+4. **Drug Resistance**: Understand treatment failure mechanisms
 
-### Potential Applications
+### Supported Drugs
 
-- Pre-clinical drug screening
--  Clinical trial patient selection
--  Drug repurposing
--  Resistance mechanism discovery
+| Drug | Target | Type |
+|------|--------|------|
+| Pembrolizumab | PD-1 | Immunotherapy |
+| Nivolumab | PD-1 | Immunotherapy |
+| Cisplatin | DNA | Chemotherapy |
+| Paclitaxel | Microtubules | Chemotherapy |
+| Erlotinib | EGFR | Targeted |
+| Vemurafenib | BRAF | Targeted |
+| Olaparib | PARP | Targeted |
 
+---
+
+##  Limitations
+
+This is a **demonstration project** for educational and portfolio purposes:
+
+- Uses simulated data based on GDSC structure (not actual patient data)
+- Performance metrics will vary with random seeds
+- Not validated for clinical use
+- Simplified per-sample TDA computation
+
+For production use, consider:
+- Real clinical datasets (GDSC, CCLE, TCGA)
+- Per-patient persistent homology computation
+- Rigorous cross-study validation
+
+---
 
 ##  Contributing
 
-Contributions welcome! Please read our contributing guidelines first.
+Contributions welcome! Areas for improvement:
 
+- [ ] Add real GDSC data integration
+- [ ] Per-sample persistence computation
+- [ ] Additional TDA features (persistence images)
+- [ ] Jupyter notebook tutorials
+- [ ] Unit tests
 ```bash
 # Development setup
 git clone https://github.com/aalvarez122/TopoRx.git
 cd TopoRx
-pip install -e ".[dev]"
-pytest tests/
+pip install -r requirements.txt
+python examples/quick_start.py  # Verify it works
 ```
 
 ---
 
-## 📄 License
+##  License
 
 MIT License — see [LICENSE](LICENSE) for details.
 
@@ -216,8 +274,9 @@ MIT License — see [LICENSE](LICENSE) for details.
 ##  Author
 
 **Angelica Alvarez**
-
- B.S. Neuroscience & Cognitive Science, University of Arizona
+-  B.S. Neuroscience, University of Arizona
+-  Data Engineer @ IGC Pharma
+-  Research: TDA, Computational Oncology, Drug Discovery
 
 [![GitHub](https://img.shields.io/badge/GitHub-aalvarez122-black)](https://github.com/aalvarez122)
 
@@ -225,7 +284,10 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ##  Acknowledgments
 
-- Built with [GUDHI](https://gudhi.inria.fr/), [scikit-learn](https://scikit-learn.org/), and [Plotly](https://plotly.com/)
+- [Ripser](https://ripser.scikit-tda.org/) — Fast persistent homology computation
+- [scikit-learn](https://scikit-learn.org/) — Machine learning framework
+- [Plotly](https://plotly.com/) — Interactive visualizations
+- [GDSC](https://www.cancerrxgene.org/) — Data structure inspiration
 
 ---
 
