@@ -40,17 +40,13 @@ Gene Expression → Topological Features → Drug Response Prediction
             • Persistent Homology
             • Persistence Landscapes  
             • Betti Curves
-```
-
-**Result**: Topological biomarkers that capture the *shape* of disease, improving drug response prediction by up to **15%** over traditional methods.
-
 ---
 
 ##  The Science
 
 ### Why Topology?
 
-Cancer is complex. The relationship between genes, proteins, and drug response isn't linear—it's a **high-dimensional shape**. TDA captures this shape through:
+Cancer is complex. The relationship between genes, proteins, and drug response isn't linear—it's a high-dimensional shape. TDA captures this shape through:
 
 | Concept | What it captures | Biological meaning |
 |---------|------------------|-------------------|
