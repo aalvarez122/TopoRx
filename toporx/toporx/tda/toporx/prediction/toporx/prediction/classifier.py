@@ -3,7 +3,14 @@ Drug Response Classifier
 ========================
 
 Machine learning models for predicting cancer drug response
-using topological biomarkers.
+using topological or gene-based biomarkers.
+
+When used with TopoRx synthetic data, the comparison between
+TDA and gene-based features is for DEMONSTRATION only.
+The synthetic drug response is engineered to correlate with
+specific biomarkers, so results don't reflect real-world performance.
+
+For meaningful comparisons, use real GDSC/CCLE data.
 
 Author: Angelica Alvarez
 """
@@ -15,38 +22,36 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import (
     accuracy_score, roc_auc_score, f1_score,
-    precision_score, recall_score, classification_report
+    precision_score, recall_score
 )
-import warnings
-warnings.filterwarnings('ignore')
 
 
 class DrugResponseClassifier:
     """
-    Classifier for predicting drug response from topological features.
+    Classifier for predicting drug response from features.
     
-    This classifier wraps multiple ML algorithms and provides
-    utilities for comparing topological features vs traditional
-    gene-based approaches.
+    Wraps multiple sklearn algorithms with utilities for
+    cross-validation and feature importance analysis.
     
     Parameters
     ----------
     model_type : str, default="random_forest"
         Type of classifier:
-        - "random_forest": Random Forest (default, good for feature importance)
-        - "gradient_boosting": Gradient Boosting (often best performance)
-        - "logistic": Logistic Regression (interpretable)
-        - "svm": Support Vector Machine (good for small datasets)
+        - "random_forest": Good for feature importance, handles non-linear
+        - "gradient_boosting": Often best performance, slower
+        - "logistic": Interpretable, linear decision boundary
+        - "svm": Good for small datasets, less interpretable
     n_estimators : int, default=100
         Number of trees (for ensemble methods)
     max_depth : int, default=10
-        Maximum tree depth
+        Maximum tree depth (prevents overfitting)
     random_state : int, default=42
         Random seed for reproducibility
     scale_features : bool, default=True
-        Whether to standardize features
+        Whether to standardize features (recommended for logistic/svm)
         
     Attributes
     ----------
@@ -64,17 +69,19 @@ class DrugResponseClassifier:
     >>> from toporx.prediction import DrugResponseClassifier
     >>> import numpy as np
     >>> 
-    >>> # Topological features (n_samples, n_features)
+    >>> # Features (n_samples, n_features)
     >>> X = np.random.randn(100, 20)
-    >>> y = np.random.randint(0, 2, 100)  # 0=non-responder, 1=responder
+    >>> y = np.random.randint(0, 2, 100)
     >>> 
-    >>> # Train classifier
+    >>> # Train and evaluate
     >>> clf = DrugResponseClassifier(model_type="random_forest")
-    >>> clf.fit(X, y)
-    >>> 
-    >>> # Predict
-    >>> predictions = clf.predict(X_new)
-    >>> probabilities = clf.predict_proba(X_new)
+    >>> results = clf.cross_validate(X, y, cv=5)
+    >>> print(f"ROC-AUC: {results['mean_score']:.3f}")
+    
+    Notes
+    -----
+    For cross-validation, scaling is done WITHIN each fold using
+    sklearn Pipeline to prevent data leakage.
     """
     
     SUPPORTED_MODELS = {
@@ -111,7 +118,18 @@ class DrugResponseClassifier:
         self._is_fitted = False
     
     def _create_model(self):
-        """Create the underlying sklearn model."""
+        """
+        Create the underlying sklearn model.
+        
+        Model choices:
+        - RandomForest: Ensemble of decision trees, good default
+        - GradientBoosting: Sequential ensemble, often better but slower
+        - LogisticRegression: Linear, interpretable coefficients
+        - SVC: Support vectors, good for small datasets
+        
+        All models use class_weight="balanced" to handle
+        imbalanced drug response data.
+        """
         if self.model_type == "random_forest":
             return RandomForestClassifier(
                 n_estimators=self.n_estimators,
@@ -121,6 +139,8 @@ class DrugResponseClassifier:
                 class_weight="balanced"
             )
         elif self.model_type == "gradient_boosting":
+            # Note: GradientBoosting doesn't support class_weight
+            # Consider using sample_weight in fit() for imbalanced data
             return GradientBoostingClassifier(
                 n_estimators=self.n_estimators,
                 max_depth=self.max_depth,
@@ -150,9 +170,9 @@ class DrugResponseClassifier:
         Parameters
         ----------
         X : np.ndarray of shape (n_samples, n_features)
-            Topological feature matrix
+            Feature matrix (topological or gene-based)
         y : np.ndarray of shape (n_samples,)
-            Drug response labels (0=non-responder, 1=responder)
+            Drug response labels (0=resistant, 1=sensitive)
             
         Returns
         -------
@@ -164,7 +184,7 @@ class DrugResponseClassifier:
         if X.ndim != 2:
             raise ValueError(f"X must be 2D, got {X.ndim}D")
         
-        # Scale features
+        # Scale features if requested
         if self.scale_features:
             self.scaler_ = StandardScaler()
             X = self.scaler_.fit_transform(X)
@@ -176,16 +196,34 @@ class DrugResponseClassifier:
         # Store classes
         self.classes_ = self.model_.classes_
         
-        # Extract feature importances (if available)
-        if hasattr(self.model_, 'feature_importances_'):
-            self.feature_importances_ = self.model_.feature_importances_
-        elif hasattr(self.model_, 'coef_'):
-            self.feature_importances_ = np.abs(self.model_.coef_).flatten()
-        else:
-            self.feature_importances_ = None
+        # Extract feature importances
+        self._extract_feature_importances()
         
         self._is_fitted = True
         return self
+    
+    def _extract_feature_importances(self):
+        """
+        Extract feature importances from fitted model.
+        
+        Different models provide importances differently:
+        - Tree models: feature_importances_ (mean decrease in impurity)
+        - Linear models: coef_ (coefficient magnitudes)
+        - SVM: Not directly available (would need permutation importance)
+        """
+        if hasattr(self.model_, 'feature_importances_'):
+            # Random Forest, Gradient Boosting
+            self.feature_importances_ = self.model_.feature_importances_
+        elif hasattr(self.model_, 'coef_'):
+            # Logistic Regression
+            # For binary classification, coef_ is (1, n_features)
+            coef = self.model_.coef_
+            if coef.ndim > 1:
+                coef = coef[0]  # Take first row for binary
+            self.feature_importances_ = np.abs(coef)
+        else:
+            # SVM (kernel) - no direct feature importance
+            self.feature_importances_ = None
     
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
@@ -194,12 +232,12 @@ class DrugResponseClassifier:
         Parameters
         ----------
         X : np.ndarray of shape (n_samples, n_features)
-            Topological features
+            Features
             
         Returns
         -------
         np.ndarray of shape (n_samples,)
-            Predicted labels
+            Predicted labels (0=resistant, 1=sensitive)
         """
         if not self._is_fitted:
             raise RuntimeError("Must call fit() first")
@@ -218,12 +256,12 @@ class DrugResponseClassifier:
         Parameters
         ----------
         X : np.ndarray of shape (n_samples, n_features)
-            Topological features
+            Features
             
         Returns
         -------
-        np.ndarray of shape (n_samples, n_classes)
-            Class probabilities
+        np.ndarray of shape (n_samples, 2)
+            Class probabilities [P(resistant), P(sensitive)]
         """
         if not self._is_fitted:
             raise RuntimeError("Must call fit() first")
@@ -249,7 +287,7 @@ class DrugResponseClassifier:
         Returns
         -------
         float
-            Accuracy score
+            Accuracy (proportion correct)
         """
         predictions = self.predict(X)
         return accuracy_score(y, predictions)
@@ -272,17 +310,17 @@ class DrugResponseClassifier:
         Returns
         -------
         dict
-            Dictionary of metrics
+            Metrics: accuracy, roc_auc, f1_score, precision, recall
         """
         predictions = self.predict(X)
         probabilities = self.predict_proba(X)[:, 1]
         
         return {
-            "accuracy": accuracy_score(y, predictions),
-            "roc_auc": roc_auc_score(y, probabilities),
-            "f1_score": f1_score(y, predictions),
-            "precision": precision_score(y, predictions),
-            "recall": recall_score(y, predictions)
+            "accuracy": float(accuracy_score(y, predictions)),
+            "roc_auc": float(roc_auc_score(y, probabilities)),
+            "f1_score": float(f1_score(y, predictions)),
+            "precision": float(precision_score(y, predictions)),
+            "recall": float(recall_score(y, predictions))
         }
     
     def cross_validate(
@@ -293,7 +331,10 @@ class DrugResponseClassifier:
         scoring: str = "roc_auc"
     ) -> Dict[str, float]:
         """
-        Perform cross-validation.
+        Perform cross-validation with proper data handling.
+        
+        Uses sklearn Pipeline to ensure scaling is done WITHIN
+        each fold, preventing data leakage.
         
         Parameters
         ----------
@@ -304,22 +345,35 @@ class DrugResponseClassifier:
         cv : int
             Number of folds
         scoring : str
-            Scoring metric
+            Scoring metric: "roc_auc", "accuracy", "f1", etc.
             
         Returns
         -------
         dict
-            Cross-validation results
+            Cross-validation results including mean, std, and all scores
+            
+        Notes
+        -----
+        Data leakage prevention:
+        Scaling is performed within each CV fold using Pipeline.
+        This ensures the test fold is truly unseen during training.
         """
         X = np.asarray(X)
         y = np.asarray(y)
         
+        # Create pipeline with scaling inside
+        # This prevents data leakage by fitting scaler only on training folds
         if self.scale_features:
-            scaler = StandardScaler()
-            X = scaler.fit_transform(X)
+            pipeline = Pipeline([
+                ('scaler', StandardScaler()),
+                ('model', self._create_model())
+            ])
+        else:
+            pipeline = Pipeline([
+                ('model', self._create_model())
+            ])
         
-        model = self._create_model()
-        
+        # Stratified K-Fold maintains class proportions in each fold
         cv_splitter = StratifiedKFold(
             n_splits=cv, 
             shuffle=True, 
@@ -327,7 +381,7 @@ class DrugResponseClassifier:
         )
         
         scores = cross_val_score(
-            model, X, y, 
+            pipeline, X, y, 
             cv=cv_splitter, 
             scoring=scoring
         )
@@ -336,7 +390,8 @@ class DrugResponseClassifier:
             "mean_score": float(np.mean(scores)),
             "std_score": float(np.std(scores)),
             "scores": scores.tolist(),
-            "scoring": scoring
+            "scoring": scoring,
+            "cv_folds": cv
         }
     
     def get_feature_importance(
@@ -350,16 +405,27 @@ class DrugResponseClassifier:
         Parameters
         ----------
         feature_names : list of str, optional
-            Names for each feature
+            Names for each feature. If None, uses "feature_0", etc.
         top_n : int
             Number of top features to return
             
         Returns
         -------
         list of (name, importance) tuples
+            Sorted by importance descending
+            
+        Notes
+        -----
+        Feature importance interpretation:
+        - Random Forest: Mean decrease in impurity (Gini importance)
+        - Logistic Regression: Absolute coefficient magnitude
+        - SVM: Not available (consider permutation importance instead)
         """
         if self.feature_importances_ is None:
-            raise ValueError("Feature importances not available for this model")
+            raise ValueError(
+                "Feature importances not available for this model. "
+                "Try random_forest or logistic regression."
+            )
         
         n_features = len(self.feature_importances_)
         
@@ -367,8 +433,12 @@ class DrugResponseClassifier:
             feature_names = [f"feature_{i}" for i in range(n_features)]
         
         if len(feature_names) != n_features:
-            raise ValueError("feature_names length doesn't match")
+            raise ValueError(
+                f"feature_names length ({len(feature_names)}) "
+                f"doesn't match features ({n_features})"
+            )
         
+        # Pair names with importances and sort
         paired = list(zip(feature_names, self.feature_importances_))
         paired.sort(key=lambda x: x[1], reverse=True)
         
@@ -385,28 +455,33 @@ class DrugResponseClassifier:
 
 class ComparativeAnalysis:
     """
-    Compare topological features vs traditional gene-based features.
+    Compare different feature sets for drug response prediction.
     
-    This class helps demonstrate the advantage of TDA-based
-    biomarkers over traditional approaches.
+    When using SYNTHETIC data (from toporx.data.load_sample_data),
+    this comparison is for DEMONSTRATION ONLY. Any "improvement" shown is artificial.
+    
+    For meaningful scientific comparisons, use:
+    - Real GDSC/CCLE drug response data
+    - External validation sets
+    - Proper statistical testing
     
     Parameters
     ----------
     random_state : int, default=42
-        Random seed
+        Random seed for reproducibility
         
     Examples
     --------
     >>> from toporx.prediction import ComparativeAnalysis
     >>> 
-    >>> # Compare TDA vs gene-based features
     >>> comparison = ComparativeAnalysis()
     >>> results = comparison.compare(
     ...     X_topo=topological_features,
     ...     X_genes=gene_expression,
-    ...     y=drug_response
+    ...     y=drug_response,
+    ...     cv=5
     ... )
-    >>> print(results)
+    >>> print(comparison.summary())
     """
     
     def __init__(self, random_state: int = 42):
@@ -421,15 +496,15 @@ class ComparativeAnalysis:
         cv: int = 5
     ) -> Dict[str, Dict]:
         """
-        Compare topological vs gene-based features.
+        Compare topological vs gene-based vs combined features.
         
         Parameters
         ----------
-        X_topo : np.ndarray
-            Topological features
-        X_genes : np.ndarray
+        X_topo : np.ndarray of shape (n_samples, n_topo_features)
+            Topological features from TDA
+        X_genes : np.ndarray of shape (n_samples, n_genes)
             Gene expression features
-        y : np.ndarray
+        y : np.ndarray of shape (n_samples,)
             Drug response labels
         cv : int
             Cross-validation folds
@@ -437,7 +512,16 @@ class ComparativeAnalysis:
         Returns
         -------
         dict
-            Comparison results for each approach
+            Results for each approach (topological, gene_based, combined)
+            
+        Notes
+        -----
+        All three approaches use the same:
+        - Random Forest classifier
+        - Cross-validation splits (same random_state)
+        - Feature scaling (within CV folds)
+        
+        This ensures fair comparison of the feature sets themselves.
         """
         results = {}
         
@@ -447,6 +531,7 @@ class ComparativeAnalysis:
             random_state=self.random_state
         )
         results["topological"] = clf_topo.cross_validate(X_topo, y, cv=cv)
+        results["topological"]["n_features"] = X_topo.shape[1]
         
         # Evaluate gene-based features
         clf_genes = DrugResponseClassifier(
@@ -454,6 +539,7 @@ class ComparativeAnalysis:
             random_state=self.random_state
         )
         results["gene_based"] = clf_genes.cross_validate(X_genes, y, cv=cv)
+        results["gene_based"]["n_features"] = X_genes.shape[1]
         
         # Evaluate combined features
         X_combined = np.hstack([X_topo, X_genes])
@@ -462,37 +548,67 @@ class ComparativeAnalysis:
             random_state=self.random_state
         )
         results["combined"] = clf_combined.cross_validate(X_combined, y, cv=cv)
+        results["combined"]["n_features"] = X_combined.shape[1]
         
-        # Compute improvement
+        # Compute improvement metrics
         topo_score = results["topological"]["mean_score"]
         gene_score = results["gene_based"]["mean_score"]
         
-        results["improvement"] = {
-            "absolute": topo_score - gene_score,
-            "relative_percent": ((topo_score - gene_score) / gene_score) * 100
+        if gene_score > 0:
+            relative_improvement = ((topo_score - gene_score) / gene_score) * 100
+        else:
+            relative_improvement = 0.0
+        
+        results["comparison"] = {
+            "absolute_difference": topo_score - gene_score,
+            "relative_percent": relative_improvement,
+            "topo_better": topo_score > gene_score,
+            "note": "With synthetic data, this comparison is for demonstration only"
         }
         
         self.results_ = results
         return results
     
     def summary(self) -> str:
-        """Generate text summary of comparison."""
+        """
+        Generate text summary of comparison.
+        
+        Returns
+        -------
+        str
+            Formatted summary table
+        """
         if self.results_ is None:
             return "No comparison run yet. Call compare() first."
         
         r = self.results_
         
         lines = [
-            "=" * 50,
+            "",
+            "=" * 60,
             "DRUG RESPONSE PREDICTION COMPARISON",
-            "=" * 50,
+            "=" * 60,
             "",
-            f"Topological Features:  ROC-AUC = {r['topological']['mean_score']:.3f} ± {r['topological']['std_score']:.3f}",
-            f"Gene-Based Features:   ROC-AUC = {r['gene_based']['mean_score']:.3f} ± {r['gene_based']['std_score']:.3f}",
-            f"Combined Features:     ROC-AUC = {r['combined']['mean_score']:.3f} ± {r['combined']['std_score']:.3f}",
+            f"  Topological Features ({r['topological']['n_features']} features):",
+            f"    ROC-AUC = {r['topological']['mean_score']:.3f} ± {r['topological']['std_score']:.3f}",
             "",
-            f"Improvement: {r['improvement']['relative_percent']:+.1f}%",
-            "=" * 50
+            f"  Gene-Based Features ({r['gene_based']['n_features']} features):",
+            f"    ROC-AUC = {r['gene_based']['mean_score']:.3f} ± {r['gene_based']['std_score']:.3f}",
+            "",
+            f"  Combined Features ({r['combined']['n_features']} features):",
+            f"    ROC-AUC = {r['combined']['mean_score']:.3f} ± {r['combined']['std_score']:.3f}",
+            "",
+            "-" * 60,
+            f"  Difference (TDA - Genes): {r['comparison']['absolute_difference']:+.3f}",
+            f"  Relative: {r['comparison']['relative_percent']:+.1f}%",
+            "",
+            "    Note: With synthetic data, comparison is for demonstration.",
+            "=" * 60,
+            ""
         ]
         
         return "\n".join(lines)
+    
+    def __repr__(self) -> str:
+        status = "completed" if self.results_ is not None else "not run"
+        return f"ComparativeAnalysis(status={status})"
