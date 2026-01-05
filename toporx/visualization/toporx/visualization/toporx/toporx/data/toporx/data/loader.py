@@ -2,16 +2,27 @@
 Data Loader Module
 ==================
 
-Provides curated cancer drug response data for demonstrating
+Provides SYNTHETIC cancer drug response data for demonstrating
 topological biomarker discovery.
 
-Based on GDSC (Genomics of Drug Sensitivity in Cancer) data structure.
-Reference: Yang et al., Nucleic Acids Research, 2013
+This module generates SIMULATED data, not real patient data.
+The data is designed to demonstrate the TopoRx pipeline workflow.
+
+Key limitations:
+- Expression values are randomly generated with biological constraints
+- Drug response labels are ENGINEERED to correlate with known biomarkers
+- This creates predictable patterns for demonstration purposes
+- Real biomarker discovery requires actual experimental data
+
+For real research, downlod actual data from:
+- GDSC: https://www.cancerrxgene.org/
+- CCLE: https://depmap.org/portal/
+- TCGA: https://portal.gdc.cancer.gov
 
 Includes Tumor Microenvironment (TME) genes relevant for:
 - Spatial transcriptomics analysis
 - Immune infiltration studies
-- Drug response prediction
+- Immunotherapy response prediction
 
 Author: Angelica Alvarez
 """
@@ -21,84 +32,107 @@ from typing import Dict, Tuple, Optional
 
 # =============================================================================
 # CANCER GENES - Comprehensive list including TME markers
+# All gene symbols are HGNC-approved official symbols
 # =============================================================================
 CANCER_GENES = [
     # -------------------------------------------------------------------------
     # ONCOGENES
+    # Genes that promote cancer when activated/overexpressed
     # -------------------------------------------------------------------------
     'EGFR', 'KRAS', 'BRAF', 'PIK3CA', 'MYC', 'ERBB2', 'MET', 'ALK',
     'RET', 'FGFR1', 'FGFR2', 'FGFR3', 'PDGFRA', 'KIT', 'ABL1',
     
     # -------------------------------------------------------------------------
     # TUMOR SUPPRESSORS
+    # Genes that prevent cancer when functioning normally
     # -------------------------------------------------------------------------
     'TP53', 'RB1', 'PTEN', 'CDKN2A', 'APC', 'BRCA1', 'BRCA2', 'NF1',
     'VHL', 'WT1', 'STK11', 'SMAD4', 'ATM', 'CHEK2', 'MLH1',
     
     # -------------------------------------------------------------------------
     # DNA REPAIR
+    # Genes involved in fixing DNA damage
     # -------------------------------------------------------------------------
     'ERCC1', 'ERCC2', 'XRCC1', 'MGMT', 'MSH2', 'MSH6', 'PMS2',
     
     # -------------------------------------------------------------------------
     # APOPTOSIS
+    # Genes controlling programmed cell death
     # -------------------------------------------------------------------------
     'BCL2', 'BAX', 'CASP3', 'CASP8', 'CASP9', 'APAF1', 'XIAP',
     
     # -------------------------------------------------------------------------
     # CELL CYCLE
+    # Genes controlling cell division
     # -------------------------------------------------------------------------
     'CCND1', 'CCNE1', 'CDK4', 'CDK6', 'CDKN1A', 'CDKN1B', 'CDC25A',
     
     # -------------------------------------------------------------------------
     # SIGNALING PATHWAYS
+    # Key signal transduction genes
     # -------------------------------------------------------------------------
     'AKT1', 'AKT2', 'MTOR', 'MAPK1', 'MAPK3', 'JAK2', 'STAT3',
     'NOTCH1', 'WNT1', 'CTNNB1', 'SHH', 'SMO', 'GLI1',
     
     # -------------------------------------------------------------------------
     # DRUG METABOLISM & RESISTANCE
+    # Genes affecting drug efficacy
     # -------------------------------------------------------------------------
     'CYP1A2', 'CYP2D6', 'CYP3A4', 'ABCB1', 'ABCC1', 'ABCG2',
     
     # -------------------------------------------------------------------------
     # ANGIOGENESIS
+    # Genes controlling blood vessel formation
     # -------------------------------------------------------------------------
     'VEGFA', 'KDR', 'HIF1A', 'ANGPT1', 'ANGPT2', 'TEK',
     
     # -------------------------------------------------------------------------
     # EPIGENETIC REGULATORS
+    # Genes controlling gene expression without DNA changes
     # -------------------------------------------------------------------------
     'DNMT1', 'DNMT3A', 'HDAC1', 'HDAC2', 'EZH2', 'KMT2A',
     
     # -------------------------------------------------------------------------
     # STEMNESS MARKERS
+    # Genes associated with cancer stem cells
     # -------------------------------------------------------------------------
     'SOX2', 'NANOG', 'POU5F1', 'KLF4', 'ALDH1A1', 'CD44', 'PROM1',
     
     # -------------------------------------------------------------------------
     # METABOLISM
+    # Genes involved in cancer metabolic reprogramming
     # -------------------------------------------------------------------------
     'LDHA', 'PKM', 'HK2', 'G6PD', 'FASN', 'ACLY', 'SLC2A1',
     
     # -------------------------------------------------------------------------
     # EMT (Epithelial-Mesenchymal Transition)
+    # Genes controlling cell plasticity and metastasis
     # -------------------------------------------------------------------------
     'CDH1', 'VIM', 'SNAI1', 'SNAI2', 'TWIST1', 'ZEB1', 'ZEB2',
     
     # -------------------------------------------------------------------------
     # HORMONE RECEPTORS
+    # Important for breast and prostate cancer
     # -------------------------------------------------------------------------
     'ESR1', 'AR', 'PGR', 'GATA3', 'FOXA1',
     
     # -------------------------------------------------------------------------
     # CELL PROLIFERATION
+    # Genes marking actively dividing cells
     # -------------------------------------------------------------------------
     'FOXM1', 'AURKA', 'AURKB', 'PLK1', 'BUB1', 'MAD2L1', 'MKI67',
     'TOP2A', 'TYMS', 'RRM1', 'RRM2', 'PCNA',
 
+    # =========================================================================
+    # TUMOR MICROENVIRONMENT (TME) GENES
+    # Key markers for spatial transcriptomics and immune analysis
+    # Highly relevant for Tsunoda Lab research
+    # =========================================================================
+    
     # -------------------------------------------------------------------------
     # CANCER-ASSOCIATED FIBROBLASTS (CAFs)
+    # Stromal cells that support tumor growth
+    # Reference: Kalluri R. Nat Rev Cancer. 2016
     # -------------------------------------------------------------------------
     'FAP',      # Fibroblast Activation Protein - PRIMARY CAF MARKER
     'ACTA2',    # Alpha-smooth muscle actin (α-SMA)
@@ -115,6 +149,7 @@ CANCER_GENES = [
     # -------------------------------------------------------------------------
     # T-CELL MARKERS
     # CD8A is critical for cytotoxic T-cell identification
+    # Reference: Tumeh PC et al. Nature. 2014
     # -------------------------------------------------------------------------
     'CD8A',     # Cytotoxic T-cell marker - PRIMARY
     'CD8B',     # Cytotoxic T-cell marker
@@ -132,6 +167,7 @@ CANCER_GENES = [
     
     # -------------------------------------------------------------------------
     # MACROPHAGE MARKERS (TAMs - Tumor Associated Macrophages)
+    # Reference: Mantovani A et al. Nat Rev Clin Oncol. 2017
     # -------------------------------------------------------------------------
     'CD68',     # Pan-macrophage marker
     'CD163',    # M2 macrophage marker
@@ -148,6 +184,7 @@ CANCER_GENES = [
     # -------------------------------------------------------------------------
     # IMMUNE CHECKPOINTS
     # Critical for immunotherapy response prediction
+    # Reference: Ribas A, Wolchok JD. Science. 2018
     # -------------------------------------------------------------------------
     'CD274',    # PD-L1
     'PDCD1',    # PD-1
@@ -164,6 +201,7 @@ CANCER_GENES = [
     # -------------------------------------------------------------------------
     # IMMUNOSUPPRESSIVE TME SIGNALING
     # TGFB1 is a master regulator of immunosuppression
+    # Reference: Mariathasan S et al. Nature. 2018
     # -------------------------------------------------------------------------
     'TGFB1',    # TGF-beta 1 - PRIMARY IMMUNOSUPPRESSIVE
     'TGFB2',    # TGF-beta 2
@@ -181,6 +219,7 @@ CANCER_GENES = [
     
     # -------------------------------------------------------------------------
     # ANTIGEN PRESENTATION (MHC/HLA)
+    # Essential for T-cell recognition of tumor cells
     # -------------------------------------------------------------------------
     'HLA-A',    # MHC class I
     'HLA-B',    # MHC class I
@@ -195,6 +234,7 @@ CANCER_GENES = [
     
     # -------------------------------------------------------------------------
     # NATURAL KILLER (NK) CELLS
+    # Innate immune cells that kill tumor cells
     # -------------------------------------------------------------------------
     'NCR1',     # NKp46 - NK cell receptor
     'KLRK1',    # NKG2D
@@ -206,6 +246,7 @@ CANCER_GENES = [
     
     # -------------------------------------------------------------------------
     # DENDRITIC CELLS
+    # Antigen-presenting cells that activate T-cells
     # -------------------------------------------------------------------------
     'CD1C',     # Conventional DC marker
     'CLEC9A',   # cDC1 marker
@@ -218,6 +259,7 @@ CANCER_GENES = [
     
     # -------------------------------------------------------------------------
     # B-CELLS
+    # Adaptive immune cells producing antibodies
     # -------------------------------------------------------------------------
     'CD19',     # B-cell marker
     'MS4A1',    # CD20
@@ -226,6 +268,7 @@ CANCER_GENES = [
     
     # -------------------------------------------------------------------------
     # NEUTROPHILS
+    # First responders in inflammation
     # -------------------------------------------------------------------------
     'FCGR3B',   # CD16b
     'CEACAM8',  # CD66b
@@ -234,6 +277,7 @@ CANCER_GENES = [
     
     # -------------------------------------------------------------------------
     # ENDOTHELIAL CELLS (Tumor Vasculature)
+    # Cells lining blood vessels
     # -------------------------------------------------------------------------
     'PECAM1',   # CD31
     'CDH5',     # VE-cadherin
@@ -242,7 +286,10 @@ CANCER_GENES = [
     'MCAM',     # CD146
 ]
 
-# Real cancer cell line names from GDSC
+# =============================================================================
+# CELL LINES - Real cancer cell line names from GDSC
+# These are actual cell line identifiers used in cancer research
+# =============================================================================
 CELL_LINES = [
     # Breast cancer
     'MCF7', 'MDA-MB-231', 'T47D', 'BT474', 'SKBR3', 'MDA-MB-468', 'BT549',
@@ -274,82 +321,101 @@ CELL_LINES = [
     'PC3', 'DU145', 'LNCaP', '22RV1', 'VCaP', 'MDAPCA2A',
 ]
 
-# Common anticancer drugs from GDSC with TME-relevant mechanisms
+# =============================================================================
+# DRUGS - Anticancer drugs with known biomarkers
+# Biomarker relationships are based on published literature
+# Note: These are PRIMARY biomarkers; real drug response is more complex
+# =============================================================================
 DRUGS = {
     # DNA-damaging agents
     'Cisplatin': {
         'target': 'DNA crosslinking',
         'pathway': 'DNA damage',
-        'biomarkers': ['ERCC1', 'BRCA1', 'BRCA2']
+        'biomarkers': ['ERCC1', 'BRCA1', 'BRCA2'],
+        'reference': 'Rabik CA, Dolan ME. Cancer Treat Rev. 2007'
     },
     'Doxorubicin': {
         'target': 'TOP2A',
         'pathway': 'DNA damage',
-        'biomarkers': ['TOP2A', 'ABCB1']
+        'biomarkers': ['TOP2A', 'ABCB1'],
+        'reference': 'Tewey KM et al. Science. 1984'
     },
     'Gemcitabine': {
         'target': 'RRM1/RRM2',
         'pathway': 'DNA synthesis',
-        'biomarkers': ['RRM1', 'RRM2', 'DCK']
+        'biomarkers': ['RRM1', 'RRM2'],
+        'reference': 'Mini E et al. Ann Oncol. 2006'
     },
     # Targeted therapies
     'Erlotinib': {
         'target': 'EGFR',
         'pathway': 'RTK signaling',
-        'biomarkers': ['EGFR', 'KRAS', 'MET']
+        'biomarkers': ['EGFR', 'KRAS', 'MET'],
+        'reference': 'Paez JG et al. Science. 2004'
     },
     'Lapatinib': {
         'target': 'EGFR/ERBB2',
         'pathway': 'RTK signaling',
-        'biomarkers': ['ERBB2', 'EGFR']
+        'biomarkers': ['ERBB2', 'EGFR'],
+        'reference': 'Geyer CE et al. N Engl J Med. 2006'
     },
     'Vemurafenib': {
         'target': 'BRAF V600E',
         'pathway': 'MAPK signaling',
-        'biomarkers': ['BRAF', 'NRAS']
+        'biomarkers': ['BRAF', 'NRAS'],
+        'reference': 'Chapman PB et al. N Engl J Med. 2011'
     },
     'Imatinib': {
         'target': 'BCR-ABL/KIT',
         'pathway': 'Kinase signaling',
-        'biomarkers': ['ABL1', 'KIT', 'PDGFRA']
+        'biomarkers': ['ABL1', 'KIT', 'PDGFRA'],
+        'reference': 'Druker BJ et al. N Engl J Med. 2001'
     },
     'Sorafenib': {
         'target': 'Multi-kinase (VEGFR, RAF)',
         'pathway': 'RTK/MAPK signaling',
-        'biomarkers': ['VEGFA', 'KDR', 'BRAF']
+        'biomarkers': ['VEGFA', 'KDR', 'BRAF'],
+        'reference': 'Wilhelm SM et al. Cancer Res. 2004'
     },
     # PARP inhibitors
     'Olaparib': {
         'target': 'PARP1/2',
         'pathway': 'DNA repair',
-        'biomarkers': ['BRCA1', 'BRCA2', 'ATM']
+        'biomarkers': ['BRCA1', 'BRCA2', 'ATM'],
+        'reference': 'Farmer H et al. Nature. 2005'
     },
     # Microtubule agents
     'Paclitaxel': {
         'target': 'Microtubules',
         'pathway': 'Cell cycle',
-        'biomarkers': ['TUBB3', 'BCL2', 'ABCB1']
+        'biomarkers': ['TUBB3', 'BCL2', 'ABCB1'],
+        'reference': 'Kavallaris M. Nat Rev Cancer. 2010'
     },
     'Docetaxel': {
         'target': 'Microtubules',
         'pathway': 'Cell cycle',
-        'biomarkers': ['TUBB3', 'ABCB1']
+        'biomarkers': ['TUBB3', 'ABCB1'],
+        'reference': 'Herbst RS, Khuri FR. Cancer Treat Rev. 2003'
     },
     # Immunotherapy (TME-relevant)
+    # These biomarkers are based on clinical trial data
     'Pembrolizumab': {
         'target': 'PD-1',
         'pathway': 'Immune checkpoint',
-        'biomarkers': ['CD274', 'PDCD1', 'CD8A', 'IFNG']
+        'biomarkers': ['CD274', 'PDCD1', 'CD8A', 'IFNG'],
+        'reference': 'Tumeh PC et al. Nature. 2014'
     },
     'Nivolumab': {
         'target': 'PD-1',
         'pathway': 'Immune checkpoint',
-        'biomarkers': ['CD274', 'PDCD1', 'CD8A', 'TGFB1']
+        'biomarkers': ['CD274', 'PDCD1', 'CD8A', 'TGFB1'],
+        'reference': 'Topalian SL et al. N Engl J Med. 2012'
     },
     'Ipilimumab': {
         'target': 'CTLA-4',
         'pathway': 'Immune checkpoint',
-        'biomarkers': ['CTLA4', 'CD8A', 'FOXP3']
+        'biomarkers': ['CTLA4', 'CD8A', 'FOXP3'],
+        'reference': 'Hodi FS et al. N Engl J Med. 2010'
     },
 }
 
@@ -362,10 +428,14 @@ def load_sample_data(
     random_state: int = 42
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """
-    Load sample cancer drug response data.
+    Load SYNTHETIC cancer drug response data for demonstration.
     
-    Generates realistic gene expression and drug response data
-    based on GDSC data characteristics, including TME markers.
+    How the simulation works:
+    1. Gene expression values are randomly generated with biological constraints
+    2. Drug response labels are ENGINEERED to correlate with known biomarkers
+    3. This creates predictable patterns for demonstration purposes
+    
+    For real research, use actual GDSC/CCLE/TCGA data.
     
     Parameters
     ----------
@@ -374,7 +444,9 @@ def load_sample_data(
     n_genes : int, default=100
         Number of genes to include
     drug : str, default='Cisplatin'
-        Drug name for response prediction
+        Drug name for response prediction.
+        Available: 'Cisplatin', 'Paclitaxel', 'Erlotinib', 'Vemurafenib',
+                   'Olaparib', 'Pembrolizumab', 'Nivolumab', 'Ipilimumab', etc.
     include_tme : bool, default=True
         Whether to prioritize TME genes in selection
     random_state : int, default=42
@@ -383,7 +455,7 @@ def load_sample_data(
     Returns
     -------
     X : np.ndarray of shape (n_samples, n_genes)
-        Gene expression matrix (log2 normalized)
+        Gene expression matrix (simulated log2 normalized values)
     y : np.ndarray of shape (n_samples,)
         Drug response labels (0=resistant, 1=sensitive)
     info : dict
@@ -395,6 +467,13 @@ def load_sample_data(
     >>> X, y, info = load_sample_data(n_samples=100, n_genes=50)
     >>> print(f"Expression matrix: {X.shape}")
     >>> print(f"Genes: {info['gene_names'][:5]}")
+    
+    Notes
+    -----
+    The response labels are generated to correlate with known biomarkers.
+    This is CIRCULAR by design - we're demonstrating the pipeline, not
+    discovering novel biomarkers. Real biomarker discovery requires
+    actual experimental data.
     """
     np.random.seed(random_state)
     
@@ -405,10 +484,10 @@ def load_sample_data(
     n_samples = min(n_samples, len(CELL_LINES))
     cell_lines = CELL_LINES[:n_samples]
     
-    # Generate realistic gene expression data
+    # Generate synthetic gene expression data
     X = _generate_expression_matrix(n_samples, len(gene_names), gene_names, random_state)
     
-    # Generate drug response based on known biomarkers
+    # Generate drug response (engineered to correlate with biomarkers)
     y = _generate_drug_response(X, gene_names, drug, random_state)
     
     # Compile metadata
@@ -420,9 +499,10 @@ def load_sample_data(
         'n_sensitive': int(np.sum(y)),
         'n_resistant': int(np.sum(1 - y)),
         'n_tme_genes': _count_tme_genes(gene_names),
-        'data_source': 'Simulated based on GDSC structure with TME markers',
-        'expression_units': 'log2 normalized',
-        'response_encoding': {0: 'Resistant', 1: 'Sensitive'}
+        'data_source': 'SYNTHETIC - simulated based on GDSC structure',
+        'expression_units': 'simulated log2 normalized',
+        'response_encoding': {0: 'Resistant', 1: 'Sensitive'},
+        'warning': 'This is simulated data for demonstration only'
     }
     
     return X, y, info
@@ -431,6 +511,11 @@ def load_sample_data(
 def _select_genes(n_genes: int, include_tme: bool) -> list:
     """
     Select genes, prioritizing TME markers if requested.
+    
+    Selection priority:
+    1. Key TME genes (FAP, CD8A, TGFB1, etc.)
+    2. Key cancer genes (TP53, EGFR, KRAS, etc.)
+    3. Fill remaining from full gene list
     """
     # Key TME genes to always include
     tme_priority = [
@@ -498,20 +583,20 @@ def _generate_expression_matrix(
     random_state: int
 ) -> np.ndarray:
     """
-    Generate realistic gene expression matrix.
+    Generate SYNTHETIC gene expression matrix.
+    - Binary phenotypes (immune hot/cold) instead of continuous
+    - No true gene-gene co-expression correlations
+    - Simplified baseline distributions per gene category
     
-    Creates log2 normalized expression values with:
-    - Gene-specific baseline expression
-    - Sample-specific effects (tumor heterogeneity)
-    - Realistic correlation structure (co-expression modules)
-    - TME-specific patterns
+    Expression values are in simulated log2 scale (range 2-15),
+    which is realistic for normalized RNA-seq or microarray data.
     """
     np.random.seed(random_state)
     
-    # Gene-specific baseline (some genes highly expressed, others low)
+    # Gene-specific baseline expression
+    # Based on typical expression patterns for each gene category
     gene_baselines = {}
     for gene in gene_names:
-        # TME genes often have specific expression patterns
         if gene in ['CD8A', 'GZMB', 'PRF1', 'IFNG']:
             # T-cell genes: bimodal (high in immune-hot tumors)
             gene_baselines[gene] = np.random.choice([4.0, 9.0])
@@ -534,17 +619,18 @@ def _generate_expression_matrix(
             # Other genes: random baseline
             gene_baselines[gene] = np.random.uniform(4, 10)
     
-    # Gene-specific variance
+    # Gene-specific variance (biological + technical)
     gene_variance = {gene: np.random.uniform(0.5, 1.5) for gene in gene_names}
     
     X = np.zeros((n_samples, n_genes))
     
-    # Create sample subtypes (immune hot vs cold, high vs low stroma)
+    # Create simplified sample phenotypes
+    # In reality, these would be continuous scores from deconvolution
     immune_hot = np.random.random(n_samples) > 0.5
     high_stroma = np.random.random(n_samples) > 0.6
     
     for i in range(n_samples):
-        # Sample-specific global effect
+        # Sample-specific global effect (batch effect simulation)
         sample_effect = np.random.normal(0, 0.3)
         
         for j, gene in enumerate(gene_names):
@@ -562,7 +648,7 @@ def _generate_expression_matrix(
             
             X[i, j] = base + sample_effect + np.random.normal(0, var)
     
-    # Clip to realistic range (2-15 for log2 expression)
+    # Clip to realistic log2 expression range
     X = np.clip(X, 2, 15)
     
     return X
@@ -575,21 +661,32 @@ def _generate_drug_response(
     random_state: int
 ) -> np.ndarray:
     """
-    Generate drug response labels based on expression biomarkers.
+    Generate SYNTHETIC drug response labels.
     
-    Uses known drug-gene relationships including TME factors
-    for immunotherapy response.
+    Response labels are ENGINEERED to correlate with known biomarkers.
+    This is intentional for demonstration purposes.
+    
+    In real studies:
+    - Drug response is measured experimentally (IC50, AUC, clinical response)
+    - Biomarker relationships are discovered through analysis
+    - Many confounding factors and unknown variables exist
+    
+    The biomarker relationships used here are based on published literature,
+    but the correlation is artificially created for demonstration.
+    
+    Biomarker weights (0.5, 0.3) are ARBITRARY and not from real data.
     """
     np.random.seed(random_state)
     
     n_samples = X.shape[0]
     
-    # Drug-specific biomarkers including TME genes for immunotherapy
+    # Drug-specific biomarkers based on literature
+    # These relationships are real, but we're artificially encoding them
     drug_biomarkers = {
         'Cisplatin': {
-            'sensitive_low': ['ERCC1', 'ERCC2'],  # Low = sensitive
+            'sensitive_low': ['ERCC1', 'ERCC2'],
             'sensitive_high': [],
-            'resistant_high': ['ABCC1', 'ABCG2']  # High = resistant
+            'resistant_high': ['ABCC1', 'ABCG2']
         },
         'Paclitaxel': {
             'sensitive_low': ['BCL2', 'TUBB3'],
@@ -607,7 +704,7 @@ def _generate_drug_response(
             'resistant_high': ['NRAS', 'MAP2K1']
         },
         'Olaparib': {
-            'sensitive_low': ['BRCA1', 'BRCA2'],  # BRCA deficient = sensitive
+            'sensitive_low': ['BRCA1', 'BRCA2'],
             'sensitive_high': [],
             'resistant_high': ['ABCB1']
         },
@@ -616,11 +713,11 @@ def _generate_drug_response(
             'sensitive_high': ['TOP2A'],
             'resistant_high': ['ABCB1', 'ABCC1']
         },
-        # Immunotherapy - TME genes are critical!
+        # Immunotherapy - TME genes based on clinical evidence
         'Pembrolizumab': {
-            'sensitive_low': ['TGFB1'],  # Low TGFB1 = better response
-            'sensitive_high': ['CD8A', 'GZMB', 'IFNG', 'CD274'],  # Immune hot = sensitive
-            'resistant_high': ['FOXP3', 'IL10']  # Immunosuppressive = resistant
+            'sensitive_low': ['TGFB1'],
+            'sensitive_high': ['CD8A', 'GZMB', 'IFNG', 'CD274'],
+            'resistant_high': ['FOXP3', 'IL10']
         },
         'Nivolumab': {
             'sensitive_low': ['TGFB1'],
@@ -641,32 +738,33 @@ def _generate_drug_response(
         'resistant_high': ['ABCB1']
     })
     
-    # Calculate sensitivity score
+    # Calculate sensitivity score based on biomarkers
+    # NOTE: Weights (0.5, 0.3) are arbitrary for demonstration
     sensitivity_score = np.zeros(n_samples)
     
-    # Low expression → sensitive
+    # Low expression of these genes → more sensitive
     for gene in biomarkers.get('sensitive_low', []):
         if gene in gene_names:
             idx = gene_names.index(gene)
-            sensitivity_score -= X[:, idx] * 0.5  # Lower = more sensitive
+            sensitivity_score -= X[:, idx] * 0.5
     
-    # High expression → sensitive
+    # High expression of these genes → more sensitive
     for gene in biomarkers.get('sensitive_high', []):
         if gene in gene_names:
             idx = gene_names.index(gene)
-            sensitivity_score += X[:, idx] * 0.5  # Higher = more sensitive
+            sensitivity_score += X[:, idx] * 0.5
     
-    # High expression → resistant
+    # High expression of these genes → more resistant
     for gene in biomarkers.get('resistant_high', []):
         if gene in gene_names:
             idx = gene_names.index(gene)
-            sensitivity_score -= X[:, idx] * 0.3  # Higher = more resistant
+            sensitivity_score -= X[:, idx] * 0.3
     
-    # Normalize and add noise
+    # Normalize and add noise (simulates biological variability)
     sensitivity_score = (sensitivity_score - sensitivity_score.mean()) / (sensitivity_score.std() + 1e-6)
     sensitivity_score += np.random.normal(0, 0.5, n_samples)
     
-    # Convert to binary (aim for ~40-60% sensitive)
+    # Convert to binary at median (aim for ~50% sensitive)
     threshold = np.percentile(sensitivity_score, 50)
     y = (sensitivity_score > threshold).astype(int)
     
@@ -680,7 +778,10 @@ def load_gdsc_subset(
     random_state: int = 42
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """
-    Load subset mimicking specific GDSC cancer type.
+    Load SYNTHETIC subset mimicking specific GDSC cancer type.
+    
+    This simulates what a real GDSC subset would look like,
+    but generates synthetic data for demonstration.
     
     Parameters
     ----------
@@ -698,7 +799,7 @@ def load_gdsc_subset(
     -------
     X, y, info : Same as load_sample_data
     """
-    # Cancer-specific configurations
+    # Cancer-specific configurations (approximate real GDSC cell line counts)
     cancer_configs = {
         'breast': {'n_samples': 80, 'n_genes': 100, 'drugs': ['Paclitaxel', 'Doxorubicin', 'Lapatinib']},
         'lung': {'n_samples': 120, 'n_genes': 100, 'drugs': ['Cisplatin', 'Erlotinib', 'Pembrolizumab']},
@@ -747,7 +848,8 @@ def get_data_info() -> Dict:
         'immunotherapy_drugs': ['Pembrolizumab', 'Nivolumab', 'Ipilimumab'],
         'gene_list': CANCER_GENES,
         'cell_line_list': CELL_LINES,
-        'drug_info': DRUGS
+        'drug_info': DRUGS,
+        'note': 'All data is synthetic for demonstration purposes'
     }
 
 
@@ -813,5 +915,11 @@ def _get_gene_description(gene: str) -> str:
         'TP53': 'Tumor protein p53 - tumor suppressor',
         'BRCA1': 'BRCA1 DNA repair - tumor suppressor',
         'ABCB1': 'P-glycoprotein - drug efflux pump',
+        'ERCC1': 'DNA excision repair - cisplatin resistance marker',
+        'KRAS': 'KRAS proto-oncogene - EGFR inhibitor resistance',
+        'BRAF': 'BRAF proto-oncogene - melanoma driver',
+        'MYC': 'MYC proto-oncogene - cell proliferation',
+        'PTEN': 'Phosphatase - PI3K pathway tumor suppressor',
+        'VEGFA': 'Vascular endothelial growth factor - angiogenesis',
     }
     return descriptions.get(gene, 'Cancer-related gene')
